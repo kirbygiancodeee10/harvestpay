@@ -1,4 +1,4 @@
-# Stellar Notes DApp
+# HarvestPay
 
 **Stellar Notes DApp** - Blockchain-Based Decentralized Note-Taking System
 
