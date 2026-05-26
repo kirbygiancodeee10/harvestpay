@@ -1,61 +1,121 @@
 # HarvestPay
 
-**Stellar Notes DApp** - Blockchain-Based Decentralized Note-Taking System
+** On-chain harvest logging and instant USDC payouts for SEA farming cooperatives.
 
-## Project Description
+The Problem
+A palay farmer in Bukidnon, Philippines delivers 150 kg of rice to the local cooperative depot. The field agent writes the delivery in a paper ledger. The farmer receives a handwritten receipt and waits 2–4 weeks for a cash payout — often subject to manual errors, middlemen skimming, and no audit trail. If the cooperative's treasurer is unavailable, payment can be delayed indefinitely.
+The Solution
+HarvestPay replaces the paper ledger with a Soroban smart contract. A field agent logs the harvest delivery on-chain (crop type, weight, agreed price). The cooperative treasury sends one transaction to settle the batch — USDC transfers directly to the farmer's Stellar wallet in under 5 seconds with a $0.0001 fee. The farmer sees the money arrive in their phone wallet before they leave the depot.
+No banks. No middlemen. No paper. Full audit trail.
 
-Stellar Notes DApp is a decentralized smart contract solution built on the Stellar blockchain using Soroban SDK. It provides a secure, immutable platform for managing personal notes directly on the blockchain. The contract ensures that your data is stored transparently and is only manageable through predefined smart contract functions, eliminating reliance on centralized database providers.
+Vision & Purpose
+HarvestPay is designed for the 10+ million smallholder farming families in Southeast Asia who are locked out of formal financial infrastructure. By anchoring payment to verifiable on-chain harvest data, cooperatives can also use HarvestBatch records as proof of income for lending — unlocking a future layer of DeFi credit for farmers who have never had a credit score.
+The contract is intentionally minimal so it can be deployed and operated by a cooperative administrator with basic CLI skills, and extended later with Soroban multi-sig, oracle pricing feeds, and DEX-based hedging.
 
-The system allows users to create, view, and delete notes, leveraging the efficiency and security of the Stellar network. Each note is uniquely identified and stored within the contract's instance storage, ensuring data persistence and reliability.
+Stellar Features Used
+FeatureWhyUSDC / Stellar Asset Contract (SAC)Stable settlement currency — farmers are paid in USDC, not volatile XLMSoroban Smart ContractsEnforce rules on-chain: only registered farmers get paid, batches can only be settled onceTrustlinesFarmer wallets must hold a USDC trustline before payment can landNative token speedLedger closes in ~5 seconds — payment confirmed before the farmer walks outOn-chain eventsharvest_logged and batch_settled events feed off-chain dashboards for cooperatives
 
-## Project Vision
+Project Structure
+harvest_pay/
+├── src/
+│   ├── lib.rs      # Contract: initialize, register_farmer, log_harvest, settle_batch
+│   └── test.rs     # 5 tests covering happy path, edge cases, and state verification
+├── Cargo.toml
+└── README.md
 
-Our vision is to revolutionize personal productivity in the digital age by:
+Prerequisites
+ToolVersionRust≥ 1.74 (install via rustup)Soroban CLI≥ 21.0.0wasm32-unknown-unknown targetrustup target add wasm32-unknown-unknown
+Install Soroban CLI:
+bashcargo install --locked soroban-cli --features opt
 
-- **Decentralizing Data**: Moving note-taking from centralized servers to a global, distributed blockchain
-- **Ensuring Ownership**: Empowering users to have complete control and ownership over their digital thoughts and information
-- **Guaranteeing Immutability**: Providing a permanent, tamper-proof record of notes that cannot be altered or deleted by third parties
-- **Enhancing Privacy**: Leveraging blockchain security to protect personal information from unauthorized access
-- **Building Trustless Systems**: Creating a platform where data integrity is guaranteed by code, not by company promises
+Build
+bashsoroban contract build
+# Output: target/wasm32-unknown-unknown/release/harvest_pay.wasm
+Optimise the Wasm binary further:
+bashsoroban contract optimize --wasm target/wasm32-unknown-unknown/release/harvest_pay.wasm
 
-We envision a future where digital information is truly personal and sovereign, empowering individuals with complete autonomy over their digital assets.
+Test
+Run all 5 tests locally (no network required):
+bashcargo test --features testutils
+Expected output:
+running 5 tests
+test tests::test_happy_path_register_log_settle ... ok
+test tests::test_double_settlement_rejected ... ok
+test tests::test_state_correct_after_settlement ... ok
+test tests::test_unauthorized_settler_rejected ... ok
+test tests::test_unregistered_farmer_harvest_rejected ... ok
 
-## Key Features
+test result: ok. 5 passed; 0 failed
 
-### 1. **Simple Note Creation**
+Deploy to Testnet
+1. Configure your identity
+bashsoroban keys generate --global deployer --network testnet
+soroban keys fund deployer --network testnet
+2. Deploy the contract
+bashsoroban contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/harvest_pay.optimized.wasm \
+  --source deployer \
+  --network testnet
+# Outputs: <CONTRACT_ID>
+3. Initialize
+bashsoroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- initialize \
+  --admin <ADMIN_ADDRESS> \
+  --usdc_token <USDC_SAC_TESTNET_ADDRESS> \
+  --treasury <TREASURY_ADDRESS>
 
-- Create notes with just one function call
-- Specify title and content for each note
-- Automated ID generation for unique identification
-- Persistent storage on the Stellar blockchain
+Sample CLI Invocations (MVP Flow)
+Register a farmer
+bashsoroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source admin \
+  --network testnet \
+  -- register_farmer \
+  --caller <ADMIN_ADDRESS> \
+  --farmer_wallet GBFR3KKVKBHB6WDSTQ7X2BKPZH3JNVXFCXLQ7FDVKJQMWP3STZXR2A \
+  --name "Maria Santos" \
+  --location "Brgy. Calaanan, Cagayan de Oro"
+Log a harvest delivery
+bashsoroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source admin \
+  --network testnet \
+  -- log_harvest \
+  --caller <ADMIN_ADDRESS> \
+  --farmer GBFR3KKVKBHB6WDSTQ7X2BKPZH3JNVXFCXLQ7FDVKJQMWP3STZXR2A \
+  --crop "palay" \
+  --weight_kg 150 \
+  --price_per_kg 15000000
+# price_per_kg = 15_000_000 stroops = 1.50 USDC
+Settle the batch (treasury releases USDC to farmer)
+bashsoroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source treasury \
+  --network testnet \
+  -- settle_batch \
+  --caller <TREASURY_ADDRESS> \
+  --batch_id 1
+# Farmer receives 225 USDC (150 kg × 1.50 USDC) in ~5 seconds
+Query a batch record
+bashsoroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_batch \
+  --batch_id 1
 
-### 2. **Efficient Data Retrieval**
+Timeline
+MilestoneDescriptionDay 1Contract deployed to testnet, farmer registration workingDay 2Harvest logging + batch settlement tested end-to-endDay 3Simple React/Next.js front-end for field agentsDay 4Demo script: register → log → settle in < 2 minutesDay 5Polish, README, pitch deck
 
-- Fetch all stored notes in a single call
-- Structured data representation for easy frontend integration
-- Quick access to your entire note collection
-- Real-time synchronization with the blockchain state
+Roadmap (Post-Hackathon)
 
-### 3. **Secure Deletion**
-
-- Remove specific notes using their unique IDs
-- Permanent removal from the contract storage
-- Clean and efficient storage management
-- Immediate update of the note list after deletion
-
-### 4. **Transparency and Security**
-
-- View all note activities on the blockchain
-- Blockchain-based verification of all storage actions
-- Immutable records of note creation and deletion
-- Protected against unauthorized modifications
-
-### 5. **Stellar Network Integration**
-
-- Leverages the high speed and low cost of Stellar
-- Built using the modern Soroban Smart Contract SDK
-- Scalable architecture for growing note collections
-- Interoperable with other Stellar-based services
+Multi-sig treasury — require 2-of-3 cooperative board signatures to settle
+Oracle price feed — integrate a Soroban oracle for real-time crop prices instead of manual entry
+Credit layer — use batch history as collateral proof for micro-loans via a Soroban lending pool
+Offline-first mobile app — field agents queue logs offline; sync + submit when connectivity returns
+DEX integration — cooperative can swap USDC ↔ PHP peso via Stellar's built-in DEX, settling in local currency
 
 ## Contract Details
 
@@ -64,57 +124,3 @@ We envision a future where digital information is truly personal and sovereign, 
   <img width="1920" height="946" alt="image" src="https://github.com/user-attachments/assets/356be630-ffc5-4afa-936d-f5b645bcfd07" />
 
 
-## Future Scope
-
-### Short-Term Enhancements
-
-1. **Note Encryption**: Support for end-to-end encryption of note content for enhanced privacy
-2. **Category Management**: Add tags and categories to organize notes efficiently
-3. **Rich Text Support**: Extend support beyond plain text to include Markdown and formatted content
-4. **Search Functionality**: Implement advanced search filters for large note collections
-
-### Medium-Term Development
-
-5. **Collaborative Notes**: Implement multi-signature requirements for shared or collaborative note-taking
-   - Shared access for multiple addresses
-   - Permission-based editing and viewing
-   - Version history tracking
-6. **Notification System**: Off-chain bridge to alert users of new updates or shared notes
-7. **Asset Attachment**: Capability to attach digital assets or tokens to specific notes
-8. **Inter-Contract Integration**: Allow other smart contracts to interact with and store data in the notes contract
-
-### Long-Term Vision
-
-9. **Cross-Chain Synchronization**: Extend note storage to multiple blockchain networks
-10. **Decentralized UI Hosting**: Host the frontend on IPFS or similar decentralized platforms
-11. **AI-Powered Summarization**: Optional integration with AI to help users summarize their notes
-12. **Privacy Layers**: Implement zero-knowledge proofs for completely private note content
-13. **DAO Governance**: Community-driven protocol improvements and feature prioritization
-14. **Identity Management**: Integration with decentralized identity (DID) systems for user management
-
-### Enterprise Features
-
-15. **Corporate Documentation**: Adapt the system for secure corporate record-keeping
-16. **Immutable Logging**: Create time-locked logs for audit purposes
-17. **Automated Reporting**: Automatic note triggers for periodic reporting
-18. **Multi-Language Support**: Expand accessibility with internationalization
-
----
-
-## Technical Requirements
-
-- Soroban SDK
-- Rust programming language
-- Stellar blockchain network
-
-## Getting Started
-
-Deploy the smart contract to Stellar's Soroban network and interact with it using the three main functions:
-
-- `create_note()` - Create a new note with a title and content
-- `get_notes()` - Retrieve all stored notes from the contract
-- `delete_note()` - Remove a specific note by its ID
-
----
-
-**Stellar Notes DApp** - Securing Your Thoughts on the Blockchain
